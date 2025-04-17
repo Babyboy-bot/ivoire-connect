@@ -1,0 +1,10 @@
+/* Styles pour IvoireConnect */
+.hero-gradient {
+    background: linear-gradient(90deg, #00796b 0%, #009688 100%);
+}
+.feature-card {
+    transition: transform 0.3s ease;
+}
+.feature-card:hover {
+    transform: translateY(-5px);
+}

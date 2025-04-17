@@ -1,0 +1,53 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Fonction pour vérifier si l'utilisateur est authentifié
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // Fonction pour vérifier si l'utilisateur accède à ses propres données
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Images de profil utilisateur
+    match /users/{userId}/profile/{fileName} {
+      // Tout le monde peut voir les images de profil
+      // Mais seul le propriétaire peut modifier son image
+      allow read: if true;
+      allow write: if isOwner(userId);
+    }
+
+    // Images des services
+    match /services/{serviceId}/images/{fileName} {
+      // Tout le monde peut voir les images des services
+      allow read: if true;
+      // Seul le prestataire propriétaire du service peut ajouter/modifier des images
+      allow write: if isAuthenticated() && 
+                  exists(/databases/$(database)/documents/services/$(serviceId)) &&
+                  get(/databases/$(database)/documents/services/$(serviceId)).data.providerId == request.auth.uid;
+    }
+
+    // Documents de vérification pour les prestataires
+    match /providers/{userId}/verification/{fileName} {
+      // Seul le propriétaire et les administrateurs peuvent voir/modifier les documents
+      allow read: if isOwner(userId) || 
+                 (isAuthenticated() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin');
+      allow write: if isOwner(userId);
+    }
+
+    // Documents des transactions
+    match /transactions/{transactionId}/{fileName} {
+      // Les documents sont visibles par le client et le prestataire concernés
+      allow read: if isAuthenticated() && 
+                 exists(/databases/$(database)/documents/transactions/$(transactionId)) &&
+                 (
+                   get(/databases/$(database)/documents/transactions/$(transactionId)).data.clientId == request.auth.uid ||
+                   get(/databases/$(database)/documents/transactions/$(transactionId)).data.providerId == request.auth.uid
+                 );
+      // Les documents sont créés par le système
+      allow write: if false;
+    }
+  }
+}

@@ -1,0 +1,117 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Fonction pour vérifier si l'utilisateur est authentifié
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // Fonction pour vérifier si l'utilisateur accède à ses propres données
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    // Fonction pour vérifier si l'utilisateur est un admin
+    function isAdmin() {
+      return isAuthenticated() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+    
+    // Fonction pour vérifier si l'utilisateur est un prestataire
+    function isProvider() {
+      return isAuthenticated() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'provider';
+    }
+    
+    // Fonction pour vérifier si l'utilisateur est un client
+    function isClient() {
+      return isAuthenticated() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'client';
+    }
+
+    // Règles pour la collection utilisateurs
+    match /users/{userId} {
+      // Tout le monde peut lire les profils publics des utilisateurs
+      // Mais seul le propriétaire peut modifier son profil
+      allow read: if true;  // Information de profil public
+      allow create: if isAuthenticated();
+      allow update, delete: if isOwner(userId) || isAdmin();
+      
+      // Sous-collections privées
+      match /private/{document=**} {
+        allow read, write: if isOwner(userId) || isAdmin();
+      }
+    }
+
+    // Règles pour la collection services
+    match /services/{serviceId} {
+      // Tout le monde peut voir les services
+      // Seul le prestataire propriétaire peut modifier ses services
+      allow read: if true;
+      allow create: if isProvider();
+      allow update, delete: if isAuthenticated() && 
+                          resource.data.providerId == request.auth.uid;
+    }
+
+    // Règles pour la collection réservations
+    match /bookings/{bookingId} {
+      // Une réservation est visible par le client qui l'a créée et le prestataire concerné
+      allow read: if isAuthenticated() && 
+                (resource.data.clientId == request.auth.uid || 
+                 resource.data.providerId == request.auth.uid);
+      
+      // Un client peut créer une réservation
+      allow create: if isClient() && 
+                  request.resource.data.clientId == request.auth.uid;
+      
+      // Modification d'une réservation par les parties concernées
+      allow update: if isAuthenticated() && 
+                  (resource.data.clientId == request.auth.uid || 
+                   resource.data.providerId == request.auth.uid);
+      
+      // Seul le client peut supprimer sa réservation (annulation)
+      allow delete: if isAuthenticated() && 
+                  resource.data.clientId == request.auth.uid;
+    }
+
+    // Règles pour la collection messages
+    match /messages/{messageId} {
+      // Un message est visible par l'expéditeur et le destinataire
+      allow read: if isAuthenticated() && 
+                (resource.data.senderId == request.auth.uid || 
+                 resource.data.receiverId == request.auth.uid);
+      
+      // Un utilisateur peut envoyer un message (avec son ID comme expéditeur)
+      allow create: if isAuthenticated() && 
+                  request.resource.data.senderId == request.auth.uid;
+      
+      // Pas de modification ou suppression des messages envoyés
+      allow update, delete: if false;
+    }
+
+    // Règles pour la collection avis (reviews)
+    match /reviews/{reviewId} {
+      // Tout le monde peut lire les avis
+      // Seul le client qui a utilisé le service peut laisser un avis
+      allow read: if true;
+      allow create: if isClient() && 
+                  request.resource.data.clientId == request.auth.uid;
+      
+      // Un client peut modifier ou supprimer son propre avis
+      allow update, delete: if isAuthenticated() && 
+                          resource.data.clientId == request.auth.uid;
+    }
+
+    // Règles pour la collection transactions de paiement
+    match /transactions/{transactionId} {
+      // Une transaction est visible par le client et le prestataire concernés
+      allow read: if isAuthenticated() && 
+                (resource.data.clientId == request.auth.uid || 
+                 resource.data.providerId == request.auth.uid);
+      
+      // Un client peut créer une transaction (paiement)
+      allow create: if isClient() && 
+                  request.resource.data.clientId == request.auth.uid;
+      
+      // Pas de modification des transactions (immuables)
+      allow update, delete: if false;
+    }
+  }
+}
